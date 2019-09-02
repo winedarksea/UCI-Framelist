@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 
-os.chdir("C:/Users/Colin/Downloads")
+os.chdir("/home/colin/UCI_pdf_reader")
 
 frame_url = 'https://www.uci.org/docs/default-source/equipment/liste-des-modeles-de-cadres-et-fourches-homologues---list-of-approved-models-of-frames-and-forks.pdf'
 
@@ -45,32 +45,36 @@ outputStream.close()
 import tabula
 df_list = tabula.read_pdf(stagingFilename,multiple_tables=True, pages = 'all')  # ,multiple_tables=True,pages='all' , flavor = 'stream'
 df2 = pd.concat(df_list).reset_index(drop = True)
-df2 = df2.replace(["", " "], np.nan)
-df2.iloc[:,0] = df2.iloc[:,0].fillna(method = 'ffill') # "Frame name", "Nom cadre"
+df2 = df2.replace(["", " ", "-", "/"], np.nan)
 df2.loc[0,~pd.isnull(df2.iloc[0,:])]
 
 for x in range(len(df2.index)):
-    # fix those odd rows where it sometimes makes 8 columns
+    # if data in column 8+, shift over to the left
     try:
-        null_test = pd.isnull(df2.iloc[x, 7])
+        null_test = len(df2.iloc[x, 7:]) - sum(pd.isnull(df2.iloc[x, 7:]))
     except:
-        null_test = False
-    if not null_test:
+        null_test = 0
+    if null_test > 0 :
         objects = df2.loc[x,~pd.isnull(df2.iloc[x,:])]
         if len(objects) == 6:
             df2.iloc[x, 1:(len(objects)+1)] = objects.values
         else:
             df2.iloc[x, 0:len(objects)] = objects.values
 try:
-    df2.drop(columns=7, inplace = True)
+    # df2.drop(columns=7, inplace = True)
+    df2 = df2.iloc[:,0:7] 
 except:
     pass
-df2 = df2.loc[~((df2.iloc[:,0]).isin(["Frame name", "Nom cadre"])), :]
+
 df2.iloc[:,0] = df2.iloc[:,0].str.replace(r'[^\w\s.]', "").str.upper().str.strip()
 df2.iloc[:,0].replace(['NA','',' ', 'NaN','NULL'], np.nan, inplace = True)
+
+df2 = df2.loc[~((df2.iloc[:,0]).isin(["FRAME NAME", "NOM CADRE", "DISC."])), :]
+
 colnames = ["Frame name", "Fork name", "Disc.", "Sizes", "date", "Frame code", "Fork code"]
 df2.replace(colnames, np.nan, inplace = True)
 df2.columns = colnames
+df2.dropna(how='all', inplace = True)
 
 # Find dates even if in different columns
 df2['Datetime'] = pd.to_datetime(df2['date'], format = '%d.%m.%Y', errors = 'coerce')
@@ -79,6 +83,9 @@ df2['Datetime'] = np.where(pd.isnull(df2['Datetime']), pd.to_datetime(df2['Disc.
 df2['Datetime'] = np.where(pd.isnull(df2['Datetime']), pd.to_datetime(df2['Frame code'], format = '%d.%m.%Y', errors = 'coerce'), df2['Datetime'])
 
 df2["Frame name"] = np.where(pd.isnull(df2["Frame name"]), df2["Fork name"], df2["Frame name"])
+
+df2.iloc[:,0] = df2.iloc[:,0].fillna(method = 'ffill') # fill down all frame names
+
 
 temp = df2.groupby(colnames[0]).max()
 temp2 = df2.select_dtypes(['object']).groupby(colnames[0]).max()
@@ -137,7 +144,7 @@ if update:
     for index, row in result.iterrows():
         index_line = (int(index) + 2)
         print(index_line)
-        sheet.insert_row(row.to_list(), index_line)
+        sheet.insert_row(row.tolist(), index_line)
         time.sleep(4) # to prevent reaching the API resource limit
 else:
     print("No update deemed necessary")
